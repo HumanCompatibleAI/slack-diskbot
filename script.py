@@ -1,10 +1,12 @@
+import argparse
 import os
+import socket
 from typing import List, NamedTuple
 
 import bitmath
-import socket
-from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
+import bitmath.integrations
+import slack_sdk
+import slack_sdk.errors
 
 
 class Partition(NamedTuple):
@@ -83,10 +85,7 @@ def select_disk_partitions() -> List[Partition]:
 
 
 def slack_print(msg, token, channel="#slack-bot-playground") -> None:
-    # This default token allows write access to any public CHAI channel.
-    # Not great if we leak it, but also can't do any harm other than spamming
-    # messages at rate-limited 1 message / second.
-    client = WebClient(token=token)
+    client = slack_sdk.WebClient(token=token)
 
     try:
         client.chat_postMessage(
@@ -95,34 +94,57 @@ def slack_print(msg, token, channel="#slack-bot-playground") -> None:
             username="Human-Compatible Disk Alert Bot",
             icon_emoji=":chai:",
         )
-    except SlackApiError as e:
+    except slack_sdk.errors.SlackApiError as e:
         # You will get a SlackApiError if "ok" is False
         assert e.response["ok"] is False
         assert e.response["error"]  # str like 'invalid_auth', 'channel_not_found'
         print(f"Got an error: {e.response['error']}")
 
 
-MINIMAL_BYTES = bitmath.GB(1000)
-
-
-def main(minimal_bytes=MINIMAL_BYTES):
-    token = os.environ.get('SLACK_BOT_TOKEN')
+def main(token: str, warning_threshold: bitmath.Bitmath, channel: str) -> None:
+    token = token or os.environ.get('SLACK_BOT_TOKEN')
     if token is None:
         print("Unable to print to Slack because SLACK_BOT_TOKEN env var not set")
         exit(1)
 
     for part in select_disk_partitions():
         hostname = socket.gethostname()
-        if part.free_bytes < minimal_bytes:
+        if part.free_bytes < warning_threshold:
             msg = (
                 ":robot_face: :hourglass_flowing_sand: :warning: "
                 f"WARNING: Low disk space on `{hostname} ({part.device})` "
-                f"(threshold: <={MINIMAL_BYTES}).\n"
+                f"(threshold: <={warning_threshold}).\n"
                 f"`{part.report_str()}`"
             )
             print(msg)
-            slack_print(msg, token)
+            slack_print(msg, token, channel)
+
+
+def console_main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--threshold",
+        type=bitmath.integrations.BitmathType,
+        default="10GB",
+        help="The disk space threshold (e.g. '10GB' or '5MB') that sets off a low disk "
+             "space warning.")
+    parser.add_argument(
+        "--channel",
+        type=str,
+        help="Name of slack channel to post to (e.g. #compute)",
+        default="#slack-bot-playground",
+    )
+    parser.add_argument(
+        "--token",
+        type=str,
+        help="Slack token (can also be provided via SLACK_BOT_TOKEN env var)."
+    )
+    args = parser.parse_args()
+    main(
+        token=args.token, warning_threshold=args.threshold,
+        channel=args.channel,
+    )
 
 
 if __name__ == '__main__':
-    main()
+    console_main()
