@@ -108,11 +108,10 @@ def main(token: str, warning_threshold: bitmath.Bitmath, channel: str) -> None:
         exit(1)
 
     for part in select_disk_partitions():
-        hostname = socket.gethostname()
         if part.free_bytes < warning_threshold:
             msg = (
                 ":robot_face: :hourglass_flowing_sand: :warning: "
-                f"WARNING: Low disk space on `{hostname} ({part.device})` "
+                f"WARNING: Low disk space on `{socket.getfqdn()} ({part.device})` "
                 f"(threshold: <={warning_threshold}).\n"
                 f"`{part.report_str()}`"
             )
